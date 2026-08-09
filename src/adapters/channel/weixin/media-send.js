@@ -1,6 +1,8 @@
 const crypto = require("crypto");
 const path = require("path");
 const fs = require("fs/promises");
+const { fetch: undiciFetch, ProxyAgent } = require("undici");
+globalThis.fetch = undiciFetch;
 
 const { getUploadUrl, sendMessage } = require("./api");
 const { getMimeFromFilename } = require("./media-mime");
@@ -10,6 +12,8 @@ const WEIXIN_MEDIA_TYPE = {
   VIDEO: 2,
   FILE: 3,
 };
+
+const proxyAgents = new Map();
 
 function encryptAesEcb(plaintext, key) {
   const cipher = crypto.createCipheriv("aes-128-ecb", key, null);
@@ -24,13 +28,15 @@ function buildCdnUploadUrl({ cdnBaseUrl, uploadParam, filekey }) {
   return `${cdnBaseUrl}/upload?encrypted_query_param=${encodeURIComponent(uploadParam)}&filekey=${encodeURIComponent(filekey)}`;
 }
 
-async function uploadBufferToCdn({ buf, uploadParam, filekey, cdnBaseUrl, aeskey }) {
+async function uploadBufferToCdn({ buf, uploadParam, filekey, cdnBaseUrl, aeskey, mediaProxyUrl = "" }) {
   const ciphertext = encryptAesEcb(buf, aeskey);
   const cdnUrl = buildCdnUploadUrl({ cdnBaseUrl, uploadParam, filekey });
+  const dispatcher = resolveProxyDispatcher(mediaProxyUrl);
   const response = await fetch(cdnUrl, {
     method: "POST",
     headers: { "Content-Type": "application/octet-stream" },
     body: new Uint8Array(ciphertext),
+    ...(dispatcher ? { dispatcher } : {}),
   });
   if (response.status !== 200) {
     const errMsg = response.headers.get("x-error-message") || await response.text();
@@ -43,7 +49,7 @@ async function uploadBufferToCdn({ buf, uploadParam, filekey, cdnBaseUrl, aeskey
   return { downloadParam };
 }
 
-async function uploadMediaToWeixin({ filePath, toUserId, opts, cdnBaseUrl, mediaType }) {
+async function uploadMediaToWeixin({ filePath, toUserId, opts, cdnBaseUrl, mediaType, mediaProxyUrl = "" }) {
   const plaintext = await fs.readFile(filePath);
   const rawsize = plaintext.length;
   const rawfilemd5 = crypto.createHash("md5").update(plaintext).digest("hex");
@@ -74,6 +80,7 @@ async function uploadMediaToWeixin({ filePath, toUserId, opts, cdnBaseUrl, media
     filekey,
     cdnBaseUrl,
     aeskey,
+    mediaProxyUrl,
   });
 
   return {
@@ -110,7 +117,7 @@ async function sendMediaItem({ to, item, contextToken, baseUrl, token }) {
   });
 }
 
-async function sendWeixinMediaFile({ filePath, to, contextToken, baseUrl, token, cdnBaseUrl }) {
+async function sendWeixinMediaFile({ filePath, to, contextToken, baseUrl, token, cdnBaseUrl, mediaProxyUrl = "" }) {
   if (!contextToken) {
     throw new Error("sendWeixinMediaFile requires contextToken");
   }
@@ -125,6 +132,7 @@ async function sendWeixinMediaFile({ filePath, to, contextToken, baseUrl, token,
       opts: uploadOpts,
       cdnBaseUrl,
       mediaType: WEIXIN_MEDIA_TYPE.IMAGE,
+      mediaProxyUrl,
     });
     await sendMediaItem({
       to,
@@ -151,6 +159,7 @@ async function sendWeixinMediaFile({ filePath, to, contextToken, baseUrl, token,
       opts: uploadOpts,
       cdnBaseUrl,
       mediaType: WEIXIN_MEDIA_TYPE.VIDEO,
+      mediaProxyUrl,
     });
     await sendMediaItem({
       to,
@@ -174,6 +183,7 @@ async function sendWeixinMediaFile({ filePath, to, contextToken, baseUrl, token,
     opts: uploadOpts,
     cdnBaseUrl,
     mediaType: WEIXIN_MEDIA_TYPE.FILE,
+    mediaProxyUrl,
   });
   await sendMediaItem({
     to,
@@ -190,6 +200,17 @@ async function sendWeixinMediaFile({ filePath, to, contextToken, baseUrl, token,
     },
   });
   return { kind: "file", fileName: path.basename(filePath) };
+}
+
+function resolveProxyDispatcher(proxyUrl) {
+  const normalized = typeof proxyUrl === "string" ? proxyUrl.trim() : "";
+  if (!normalized) {
+    return null;
+  }
+  if (!proxyAgents.has(normalized)) {
+    proxyAgents.set(normalized, new ProxyAgent(normalized));
+  }
+  return proxyAgents.get(normalized);
 }
 
 module.exports = { sendWeixinMediaFile };

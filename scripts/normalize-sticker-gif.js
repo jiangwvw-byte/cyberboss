@@ -5,7 +5,8 @@ const path = require("path");
 const { spawnSync } = require("child_process");
 
 const SIPS_PATH = "/usr/bin/sips";
-const DEFAULT_SIZE = 240;
+const FFMPEG_PATH = "/usr/bin/ffmpeg";
+const DEFAULT_SIZE = 480;
 
 function main() {
   const args = process.argv.slice(2);
@@ -29,27 +30,35 @@ function main() {
     return;
   }
 
-  if (process.platform !== "darwin") {
-    throw new Error("Sticker GIF normalization for non-GIF inputs currently requires macOS `sips`.");
-  }
-  if (!fs.existsSync(SIPS_PATH)) {
-    throw new Error(`Required tool missing: ${SIPS_PATH}`);
-  }
-
   const normalizedSize = Number.isInteger(size) && size > 0 ? size : DEFAULT_SIZE;
-  const result = spawnSync(SIPS_PATH, [
-    "-s", "format", "gif",
-    "-z", String(normalizedSize), String(normalizedSize),
-    resolvedInputPath,
-    "--out", resolvedOutputPath,
-  ], {
-    encoding: "utf8",
-  });
+  let result;
+  let toolName;
+
+  if (process.platform === "darwin" && fs.existsSync(SIPS_PATH)) {
+    toolName = "sips";
+    result = spawnSync(SIPS_PATH, [
+      "-s", "format", "gif",
+      "-z", String(normalizedSize), String(normalizedSize),
+      resolvedInputPath,
+      "--out", resolvedOutputPath,
+    ], { encoding: "utf8" });
+  } else {
+    if (!fs.existsSync(FFMPEG_PATH)) {
+      throw new Error(`Required tool missing: ${FFMPEG_PATH}`);
+    }
+    toolName = "ffmpeg";
+    result = spawnSync(FFMPEG_PATH, [
+      "-y",
+      "-i", resolvedInputPath,
+      "-vf", `scale=${normalizedSize}:${normalizedSize}:force_original_aspect_ratio=decrease,pad=${normalizedSize}:${normalizedSize}:(ow-iw)/2:(oh-ih)/2:color=white`,
+      resolvedOutputPath,
+    ], { encoding: "utf8" });
+  }
 
   if (result.status !== 0) {
     const stderr = String(result.stderr || "").trim();
     const stdout = String(result.stdout || "").trim();
-    throw new Error(`sips gif normalization failed: ${stderr || stdout || `exit ${result.status}`}`);
+    throw new Error(`${toolName} gif normalization failed: ${stderr || stdout || `exit ${result.status}`}`);
   }
   if (!fs.existsSync(resolvedOutputPath)) {
     throw new Error(`GIF normalization produced no output: ${resolvedOutputPath}`);

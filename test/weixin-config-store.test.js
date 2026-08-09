@@ -22,6 +22,7 @@ test("loadWeixinConfig clamps invalid env defaults back to the hard default", ()
   const config = createConfig({ weixinMinChunkChars: 0 });
   assert.deepEqual(loadWeixinConfig(config), {
     minChunkChars: DEFAULT_MIN_WEIXIN_CHUNK,
+    mediaProxyUrl: "",
   });
 });
 
@@ -29,6 +30,7 @@ test("loadWeixinConfig prefers a valid env default when the file is missing", ()
   const config = createConfig({ weixinMinChunkChars: 50 });
   assert.deepEqual(loadWeixinConfig(config), {
     minChunkChars: 50,
+    mediaProxyUrl: "",
   });
 });
 
@@ -37,5 +39,6 @@ test("loadWeixinConfig normalizes persisted values against the env-backed defaul
   saveWeixinConfig(config, { minChunkChars: 0 });
   assert.deepEqual(loadWeixinConfig(config), {
     minChunkChars: DEFAULT_MIN_WEIXIN_CHUNK,
+    mediaProxyUrl: "",
   });
 });

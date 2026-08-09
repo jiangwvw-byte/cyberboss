@@ -18,7 +18,9 @@ function createWeixinChannelAdapter(config) {
   let selectedAccount = null;
   let contextTokenCache = null;
   const inboundFilter = createInboundFilter();
-  let minWeixinChunk = loadWeixinConfig(config).minChunkChars;
+  const persistedWeixinConfig = loadWeixinConfig(config);
+  let minWeixinChunk = persistedWeixinConfig.minChunkChars;
+  const mediaProxyUrl = persistedWeixinConfig.mediaProxyUrl;
 
   function ensureAccount() {
     if (!selectedAccount) {
@@ -211,13 +213,14 @@ function createWeixinChannelAdapter(config) {
         baseUrl: account.baseUrl,
         token: account.token,
         cdnBaseUrl: config.weixinCdnBaseUrl,
+        mediaProxyUrl,
       });
     },
     setMinChunkChars(value) {
       const parsed = Number.parseInt(String(value), 10);
       if (Number.isFinite(parsed) && parsed >= 1 && parsed <= MAX_WEIXIN_CHUNK) {
         minWeixinChunk = parsed;
-        saveWeixinConfig(config, { minChunkChars: minWeixinChunk });
+        saveWeixinConfig(config, { minChunkChars: minWeixinChunk, mediaProxyUrl });
       }
       return minWeixinChunk;
     },

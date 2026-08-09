@@ -1,6 +1,8 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const path = require("node:path");
+const fs = require("node:fs");
+const os = require("node:os");
 
 const { CodexRpcClient } = require("../src/adapters/runtime/codex/rpc-client");
 
@@ -26,9 +28,16 @@ test("codex rpc client uses turn/interrupt for stop requests", async () => {
   }]);
 });
 
-test("codex rpc client sends image attachments as local images", async () => {
+test("codex rpc client sends image attachments as local images", async (t) => {
   const client = new CodexRpcClient({ endpoint: "ws://127.0.0.1:8765" });
   const calls = [];
+  const root = fs.mkdtempSync(
+    path.join(os.tmpdir(), "cyberboss-rpc-image-"),
+  );
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const imagePath = path.join(root, "cyberboss image.jpg");
+  const imageBytes = Buffer.from("fake-image-data");
+  fs.writeFileSync(imagePath, imageBytes);
   client.sendRequest = async (method, params) => {
     calls.push({ method, params });
     return { result: { turn: { id: "turn-1" } } };
@@ -38,7 +47,7 @@ test("codex rpc client sends image attachments as local images", async () => {
     threadId: "thread-1",
     text: "what is this image?",
     attachments: [{
-      absolutePath: path.join("/tmp", "cyberboss image.jpg"),
+      absolutePath: imagePath,
       contentType: "image/jpeg",
     }],
   });
@@ -47,8 +56,8 @@ test("codex rpc client sends image attachments as local images", async () => {
   assert.deepEqual(calls[0].params.input, [
     { type: "text", text: "what is this image?" },
     {
-      type: "localImage",
-      path: "/tmp/cyberboss image.jpg",
+      type: "image",
+      url: `data:image/jpeg;base64,${imageBytes.toString("base64")}`,
     },
   ]);
 });

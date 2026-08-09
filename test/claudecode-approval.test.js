@@ -46,7 +46,7 @@ test("claudecode approval events canonicalize diary commands for stable always m
     requestId: "req-diary",
     toolName: "exec_command",
     input: {
-      cmd: "/Users/tingyiwen/Dev/cyberboss/bin/cyberboss diary write --date 2026-04-17 --title '4.17' --text 'hello'",
+      cmd: "/tmp/cyberboss-test-user/Dev/cyberboss/bin/cyberboss diary write --date 2026-04-17 --title '4.17' --text 'hello'",
     },
   });
 
@@ -90,12 +90,12 @@ test("claudecode approval events canonicalize Read image approvals for stable ma
     requestId: "req-read-image",
     toolName: "Read",
     input: {
-      file_path: "/Users/tingyiwen/.cyberboss/inbox/2026-04-17/attachment-5.jpg",
+      file_path: "/tmp/cyberboss-test-user/.cyberboss/inbox/2026-04-17/attachment-5.jpg",
     },
   });
 
   assert.deepEqual(event.payload.commandTokens, ["read_image"]);
-  assert.equal(event.payload.filePath, "/Users/tingyiwen/.cyberboss/inbox/2026-04-17/attachment-5.jpg");
+  assert.equal(event.payload.filePath, "/tmp/cyberboss-test-user/.cyberboss/inbox/2026-04-17/attachment-5.jpg");
 });
 
 test("claudecode approval events keep non-image Read approvals as file reads", () => {
@@ -105,12 +105,12 @@ test("claudecode approval events keep non-image Read approvals as file reads", (
     requestId: "req-read-text",
     toolName: "Read",
     input: {
-      file_path: "/Users/tingyiwen/.cyberboss/inbox/2026-04-17/note.txt",
+      file_path: "/tmp/cyberboss-test-user/.cyberboss/inbox/2026-04-17/note.txt",
     },
   });
 
   assert.deepEqual(event.payload.commandTokens, []);
-  assert.equal(event.payload.filePath, "/Users/tingyiwen/.cyberboss/inbox/2026-04-17/note.txt");
+  assert.equal(event.payload.filePath, "/tmp/cyberboss-test-user/.cyberboss/inbox/2026-04-17/note.txt");
 });
 
 test("claudecode approval events capture Write file paths for state-dir auto approve", () => {
@@ -120,13 +120,13 @@ test("claudecode approval events capture Write file paths for state-dir auto app
     requestId: "req-write",
     toolName: "Write",
     input: {
-      file_path: "/Users/tingyiwen/.cyberboss/notes/today.md",
+      file_path: "/tmp/cyberboss-test-user/.cyberboss/notes/today.md",
       content: "hello",
     },
   });
 
-  assert.equal(event.payload.filePath, "/Users/tingyiwen/.cyberboss/notes/today.md");
-  assert.deepEqual(event.payload.filePaths, ["/Users/tingyiwen/.cyberboss/notes/today.md"]);
+  assert.equal(event.payload.filePath, "/tmp/cyberboss-test-user/.cyberboss/notes/today.md");
+  assert.deepEqual(event.payload.filePaths, ["/tmp/cyberboss-test-user/.cyberboss/notes/today.md"]);
 });
 
 test("claudecode adapter exposes image file read capability only for known image-capable models", () => {
@@ -1037,10 +1037,10 @@ test("handleRuntimeEvent still prompts for non-inbox image reads", async () => {
     payload: {
       threadId: "thread-1",
       requestId: "req-read-img-3",
-      filePath: "/Users/tingyiwen/Desktop/photo.jpg",
+      filePath: "/tmp/cyberboss-test-user/Desktop/photo.jpg",
       commandTokens: ["read_image"],
       reason: "Tool: Read",
-      command: "Read\nfile_path: \"/Users/tingyiwen/Desktop/photo.jpg\"",
+      command: "Read\nfile_path: \"/tmp/cyberboss-test-user/Desktop/photo.jpg\"",
     },
   });
 

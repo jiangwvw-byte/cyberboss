@@ -11,16 +11,17 @@ function loadWeixinConfig(config) {
     DEFAULT_MIN_WEIXIN_CHUNK,
   );
   if (!filePath) {
-    return { minChunkChars: envDefault };
+    return { minChunkChars: envDefault, mediaProxyUrl: "" };
   }
   try {
     const raw = fs.readFileSync(filePath, "utf8");
     const parsed = JSON.parse(raw);
     return {
       minChunkChars: normalizeMinChunkChars(parsed?.minChunkChars, envDefault),
+      mediaProxyUrl: normalizeText(parsed?.mediaProxyUrl),
     };
   } catch {
-    return { minChunkChars: envDefault };
+    return { minChunkChars: envDefault, mediaProxyUrl: "" };
   }
 }
 
@@ -35,6 +36,7 @@ function saveWeixinConfig(config, values) {
     JSON.stringify(
       {
         minChunkChars: normalizeMinChunkChars(values?.minChunkChars),
+        mediaProxyUrl: normalizeText(values?.mediaProxyUrl),
       },
       null,
       2,
@@ -48,6 +50,10 @@ function normalizeMinChunkChars(value, defaultValue = DEFAULT_MIN_WEIXIN_CHUNK) 
     return parsed;
   }
   return defaultValue;
+}
+
+function normalizeText(value) {
+  return typeof value === "string" ? value.trim() : "";
 }
 
 module.exports = {

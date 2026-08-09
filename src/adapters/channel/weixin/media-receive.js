@@ -1,6 +1,8 @@
 const crypto = require("crypto");
 const fs = require("fs/promises");
 const path = require("path");
+const { ProxyAgent } = require("undici");
+const mediaProxyDispatcher = new ProxyAgent("http://127.0.0.1:40000");
 
 const DEFAULT_INBOX_DIR = "inbox";
 const MAX_FILE_NAME_LENGTH = 120;
@@ -90,6 +92,7 @@ async function downloadAttachmentPayload(attachment, cdnBaseUrl) {
     try {
       const response = await fetch(candidate, {
         method: "GET",
+        dispatcher: mediaProxyDispatcher,
         headers: {
           Accept: "*/*",
         },

@@ -89,6 +89,24 @@ function mapCodexMessageToRuntimeEvent(message) {
     };
   }
 
+  if (
+    method === "item/completed"
+    && normalizeString(params?.item?.type).toLowerCase() === "imagegeneration"
+  ) {
+    return {
+      type: "runtime.artifact.completed",
+      payload: {
+        threadId,
+        turnId,
+        itemId: normalizeString(params?.item?.id),
+        kind: "image",
+        status: normalizeString(params?.item?.status),
+        filePath: normalizeString(params?.item?.savedPath),
+        completedAtMs: numberOrZero(params?.completedAtMs),
+      },
+    };
+  }
+
   if (isApprovalRequestMethod(method)) {
     return {
       type: "runtime.approval.requested",

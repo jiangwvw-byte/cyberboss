@@ -10,7 +10,7 @@ const {
   extractTurnIdFromParams,
   isAssistantItemCompleted,
 } = require("./message-utils");
-const { findModelByQuery } = require("./model-catalog");
+const { resolveEffectiveModelForEffort } = require("./model-catalog");
 const { SessionStore } = require("./session-store");
 const { resolveCodexProjectToolMcpServerConfig } = require("./mcp-config");
 
@@ -83,7 +83,7 @@ function createCodexRuntimeAdapter(config) {
       }
       const effectiveModel = normalizeText(configuredModel) || normalizeText(model);
       const catalog = sessionStore.getAvailableModelCatalog();
-      const catalogModel = findModelByQuery(catalog?.models, effectiveModel);
+      const catalogModel = resolveEffectiveModelForEffort(catalog?.models, effectiveModel);
       return {
         nativeImageInput: hasImageInputModality(catalogModel),
         toolImageRead: false,

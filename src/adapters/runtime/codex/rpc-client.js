@@ -374,8 +374,8 @@ function buildTurnInputPayload({ text, attachments = [] }) {
       continue;
     }
     input.push({
-      type: "localImage",
-      path: absolutePath,
+      type: "image",
+      url: "data:" + (normalizeNonEmptyString(attachment?.contentType) || "image/jpeg") + ";base64," + require("fs").readFileSync(absolutePath).toString("base64"),
     });
   }
   return input;

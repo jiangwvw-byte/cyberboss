@@ -31,6 +31,12 @@ const { SystemMessageQueueStore } = require("./system-message-queue-store");
 const { SystemMessageDispatcher } = require("./system-message-dispatcher");
 const { TimelineScreenshotQueueStore } = require("./timeline-screenshot-queue-store");
 const { TurnGateStore } = require("./turn-gate-store");
+const { OutboundDeliveryStore } = require("./outbound-delivery-store");
+const { OutboundMediaStore } = require("./outbound-media-store");
+const { OutboundTokenRegistry } = require("./outbound-token-registry");
+const {
+  OutboundDeliveryCoordinator,
+} = require("./outbound-delivery-coordinator");
 const { ReminderQueueStore } = require("../adapters/channel/weixin/reminder-queue-store");
 const {
   matchesCommandPrefix,
@@ -87,6 +93,20 @@ class CyberbossApp {
       sessionStore: this.runtimeAdapter.getSessionStore(),
       runtimeId: this.runtimeAdapter.describe().id,
       onDeferredSystemReply: (payload) => this.deferSystemReply(payload),
+    });
+    this.outboundDeliveryStore = new OutboundDeliveryStore({
+      filePath: config.outboundDeliveryFile,
+    });
+    this.outboundMediaStore = new OutboundMediaStore({
+      directory: config.outboundMediaDir,
+    });
+    this.outboundTokenRegistry = new OutboundTokenRegistry({
+      filePath: config.outboundTokenRegistryFile,
+    });
+    this.outboundDeliveryCoordinator = new OutboundDeliveryCoordinator({
+      store: this.outboundDeliveryStore,
+      tokenRegistry: this.outboundTokenRegistry,
+      channelAdapter: this.channelAdapter,
     });
     this.pendingOperationByRunKey = new Map();
     this.runtimeEventChain = Promise.resolve();
@@ -201,6 +221,7 @@ class CyberbossApp {
 
           consecutiveFailures += 1;
           console.error(`[cyberboss] poll failed: ${formatErrorMessage(error)}`);
+          console.error("[cyberboss] poll details:", error?.stack || error, error?.cause || "");
           await sleep(consecutiveFailures >= MAX_CONSECUTIVE_FAILURES ? BACKOFF_DELAY_MS : RETRY_DELAY_MS);
         }
       }
@@ -326,6 +347,30 @@ class CyberbossApp {
     const normalized = this.channelAdapter.normalizeIncomingMessage(message);
     if (!normalized) {
       return;
+    }
+
+    const allowedUserIds = Array.isArray(this.config?.allowedUserIds)
+      ? this.config.allowedUserIds
+        .map((value) => normalizeCommandArgument(value))
+        .filter(Boolean)
+      : [];
+    const senderId = normalizeCommandArgument(normalized.senderId);
+    if (!senderId || !allowedUserIds.includes(senderId)) {
+      console.warn("[cyberboss] ignored message from unauthorized sender");
+      return;
+    }
+
+    if (normalized.contextToken) {
+      this.outboundTokenRegistry.observe({
+        accountId: normalized.accountId,
+        userId: normalized.senderId,
+        token: normalized.contextToken,
+      });
+      await this.outboundDeliveryCoordinator
+        .flushNext(normalized.accountId, normalized.senderId)
+        .catch(() => {
+          console.error("[cyberboss] outbound delivery wake failed");
+        });
     }
 
     this.primeDeferredRepliesForSender(normalized);
@@ -1472,6 +1517,63 @@ class CyberbossApp {
       : null;
     await this.streamDelivery.handleRuntimeEvent(event);
     if (!event) {
+      return;
+    }
+    if (event.type === "runtime.artifact.completed") {
+      const payload = event.payload || {};
+      const filePath = String(payload.filePath || "").trim();
+      const isCompletedImage = payload.kind === "image"
+        && String(payload.status || "").toLowerCase() === "completed";
+      const isValidFile = filePath
+        && path.isAbsolute(filePath)
+        && fs.existsSync(filePath)
+        && fs.statSync(filePath).isFile();
+      if (!isCompletedImage || !isValidFile) {
+        return;
+      }
+
+      const target = this.streamDelivery.resolveReplyTargetForRun({
+        threadId: payload.threadId,
+        turnId: payload.turnId,
+      });
+      const accountId = this.activeAccountId
+        || this.channelAdapter?.resolveAccount?.().accountId;
+      if (!accountId || !target?.userId) {
+        return;
+      }
+
+      const deliveryId = [
+        "codex-image",
+        payload.threadId,
+        payload.turnId,
+        payload.itemId,
+      ].join(":");
+      const durableFilePath = this.outboundMediaStore.persist({
+        sourcePath: filePath,
+        deliveryId,
+      });
+
+      this.outboundDeliveryStore.enqueue({
+        deliveryId: [
+          "codex-image",
+          payload.threadId,
+          payload.turnId,
+          payload.itemId,
+        ].join(":"),
+        accountId,
+        userId: target.userId,
+        kind: "image",
+        priority: 300,
+        status: "pending",
+        filePath,
+        createdAt: Number.isFinite(payload.completedAtMs)
+          ? new Date(payload.completedAtMs).toISOString()
+          : new Date().toISOString(),
+      });
+      await this.outboundDeliveryCoordinator.flushNext(
+        accountId,
+        target.userId,
+      );
       return;
     }
     if (event.type === "runtime.turn.completed" || event.type === "runtime.turn.failed") {
