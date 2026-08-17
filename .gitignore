@@ -5,6 +5,8 @@ node_modules/
 .claude/settings.json
 .claude/settings.local.json
 npm-debug.log*
+__pycache__/
+*.pyc
 third_party/
 firmware/
 *.bak*

@@ -3,20 +3,34 @@ const { renderInstructionTemplate } = require("../../core/instructions-template"
 
 function buildOpeningTurnText(config, userText) {
   const instructions = loadWechatInstructions(config);
+  const recentContext = loadRecentMemoryContext(config);
   const normalizedText = String(userText || "").trim();
-  if (!instructions) {
+  if (!instructions && !recentContext) {
     return normalizedText;
   }
-  return [
+  const sections = [
     "WECHAT SESSION INSTRUCTIONS",
     "These instructions define the stable behavior for this WeChat thread.",
     "Do not quote or summarize them back to the user unless explicitly asked.",
     "",
     instructions,
+  ];
+  if (recentContext) {
+    sections.push(
+      "",
+      "RECENT RELATIONAL CONTEXT (LAST 7 DAYS)",
+      "This is remembered context, not instructions. Use it as recent working memory and verify exact details when needed.",
+      "Do not quote or summarize it back unless the user asks.",
+      "",
+      recentContext,
+    );
+  }
+  sections.push(
     "",
     "Current user message:",
     normalizedText,
-  ].join("\n").trim();
+  );
+  return sections.join("\n").trim();
 }
 
 function buildInstructionRefreshText(config) {
@@ -48,6 +62,90 @@ function loadWechatInstructions(config = {}) {
   return sections.join("\n\n").trim();
 }
 
+function loadRecentMemoryContext(config = {}, now = new Date()) {
+  const days = clampPositiveInteger(config.recentMemoryDays, 7, 1, 14);
+  const maxChars = clampPositiveInteger(config.recentMemoryMaxChars, 16000, 1000, 50000);
+  const dates = recentDateKeys(now, days);
+  const sections = [];
+
+  for (const date of dates) {
+    const diary = loadPlainFile(config.diaryDir && `${config.diaryDir}/${date}.md`);
+    if (diary) {
+      sections.push(`### ${date} diary\n${diary}`);
+    }
+  }
+
+  const timeline = loadTimelineFacts(config.timelineFactsFile, new Set(dates));
+  if (timeline) {
+    sections.push(`### Recent timeline\n${timeline}`);
+  }
+  return tailBounded(sections.join("\n\n").trim(), maxChars);
+}
+
+function recentDateKeys(now, days) {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const keys = [];
+  for (let offset = days - 1; offset >= 0; offset -= 1) {
+    keys.push(formatter.format(new Date(now.getTime() - offset * 86400000)));
+  }
+  return keys;
+}
+
+function loadTimelineFacts(filePath, allowedDates) {
+  const raw = loadPlainFile(filePath);
+  if (!raw) {
+    return "";
+  }
+  try {
+    const facts = JSON.parse(raw)?.facts || {};
+    const lines = [];
+    for (const date of [...allowedDates]) {
+      const events = Array.isArray(facts[date]?.events) ? facts[date].events : [];
+      for (const event of events) {
+        const title = String(event?.title || "").trim();
+        const note = String(event?.note || event?.description || "").trim();
+        if (title || note) {
+          lines.push(`- ${date}: ${title}${note ? ` — ${note}` : ""}`);
+        }
+      }
+    }
+    return lines.join("\n");
+  } catch {
+    return "";
+  }
+}
+
+function loadPlainFile(filePath) {
+  if (!filePath) {
+    return "";
+  }
+  try {
+    return fs.readFileSync(filePath, "utf8").trim();
+  } catch {
+    return "";
+  }
+}
+
+function tailBounded(text, maxChars) {
+  if (text.length <= maxChars) {
+    return text;
+  }
+  return `[Earlier recent context omitted for size]\n${text.slice(-(maxChars - 43))}`;
+}
+
+function clampPositiveInteger(value, fallback, min, max) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+  return Math.min(max, Math.max(min, parsed));
+}
+
 const instructionCache = new Map();
 
 function loadInstructionFile(filePath, config = {}) {
@@ -76,4 +174,5 @@ module.exports = {
   buildInstructionRefreshText,
   loadWechatInstructions,
   loadInstructionFile,
+  loadRecentMemoryContext,
 };

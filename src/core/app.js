@@ -3,6 +3,7 @@ const path = require("path");
 const crypto = require("crypto");
 const fs = require("fs");
 const { createWeixinChannelAdapter } = require("../adapters/channel/weixin");
+const { createTelegramChannelAdapter } = require("../adapters/channel/telegram");
 const { DEFAULT_MIN_WEIXIN_CHUNK, MAX_MIN_WEIXIN_CHUNK } = require("../adapters/channel/weixin/config-store");
 const { persistIncomingWeixinAttachments } = require("../adapters/channel/weixin/media-receive");
 const { createCodexRuntimeAdapter } = require("../adapters/runtime/codex");
@@ -67,7 +68,9 @@ function createRuntimeAdapter(config) {
 class CyberbossApp {
   constructor(config) {
     this.config = config;
-    this.channelAdapter = createWeixinChannelAdapter(config);
+    this.channelAdapter = config.channel === "telegram"
+      ? createTelegramChannelAdapter(config)
+      : createWeixinChannelAdapter(config);
     this.timelineIntegration = createTimelineIntegration(config);
     const projectTooling = createProjectTooling(config, {
       channelAdapter: this.channelAdapter,
@@ -837,13 +840,19 @@ class CyberbossApp {
       return buildInboundDraft(normalized);
     }
 
-    const persisted = await persistIncomingWeixinAttachments({
-      attachments,
-      stateDir: this.config.stateDir,
-      cdnBaseUrl: this.config.weixinCdnBaseUrl,
-      messageId: normalized.messageId,
-      receivedAt: normalized.receivedAt,
-    });
+    const persisted = typeof this.channelAdapter.persistIncomingAttachments === "function"
+      ? await this.channelAdapter.persistIncomingAttachments({
+        attachments,
+        messageId: normalized.messageId,
+        receivedAt: normalized.receivedAt,
+      })
+      : await persistIncomingWeixinAttachments({
+        attachments,
+        stateDir: this.config.stateDir,
+        cdnBaseUrl: this.config.weixinCdnBaseUrl,
+        messageId: normalized.messageId,
+        receivedAt: normalized.receivedAt,
+      });
 
     if (!persisted.saved.length && persisted.failed.length && !String(normalized.text || "").trim()) {
       await this.channelAdapter.sendText({
@@ -855,7 +864,16 @@ class CyberbossApp {
       return null;
     }
 
-    const prepared = buildInboundDraft(normalized, {
+    const transcripts = persisted.saved
+      .map((item) => String(item?.transcript || "").trim())
+      .filter(Boolean);
+    const normalizedWithTranscript = transcripts.length
+      ? {
+        ...normalized,
+        text: [String(normalized.text || "").trim(), `Voice transcript:\n${transcripts.join("\n")}`].filter(Boolean).join("\n\n"),
+      }
+      : normalized;
+    const prepared = buildInboundDraft(normalizedWithTranscript, {
       attachments: persisted.saved,
       attachmentFailures: persisted.failed,
     });

@@ -79,6 +79,36 @@ class SessionStore {
     return "";
   }
 
+  getThreadVolumeState(bindingKey, workspaceRoot, runtimeId = this.runtimeId) {
+    const root = normalizeValue(workspaceRoot);
+    const runtime = normalizeValue(runtimeId) || "default";
+    const binding = this.getBinding(bindingKey) || {};
+    const value = binding.threadVolumeStateByWorkspaceRootByRuntime?.[runtime]?.[root];
+    return value && typeof value === "object"
+      ? { startedAt: normalizeValue(value.startedAt), reminderSentAt: normalizeValue(value.reminderSentAt) }
+      : { startedAt: "", reminderSentAt: "" };
+  }
+
+  setThreadVolumeState(bindingKey, workspaceRoot, state = {}, runtimeId = this.runtimeId) {
+    const root = normalizeValue(workspaceRoot);
+    if (!root) return this.getBinding(bindingKey);
+    const runtime = normalizeValue(runtimeId) || "default";
+    const current = this.getBinding(bindingKey) || {};
+    const runtimeMap = current.threadVolumeStateByWorkspaceRootByRuntime || {};
+    return this.updateBinding(bindingKey, {
+      threadVolumeStateByWorkspaceRootByRuntime: {
+        ...runtimeMap,
+        [runtime]: {
+          ...(runtimeMap[runtime] || {}),
+          [root]: {
+            startedAt: normalizeValue(state.startedAt),
+            reminderSentAt: normalizeValue(state.reminderSentAt),
+          },
+        },
+      },
+    });
+  }
+
   setThreadIdForWorkspace(bindingKey, workspaceRoot, threadId, extra = {}, runtimeId = this.runtimeId) {
     const normalizedWorkspaceRoot = normalizeValue(workspaceRoot);
     if (!normalizedWorkspaceRoot) {
@@ -109,7 +139,16 @@ class SessionStore {
       };
     }
 
-    return this.updateBinding(bindingKey, nextBinding);
+    const oldThreadId = getThreadMapForRuntime(current, normalizedRuntimeId)[normalizedWorkspaceRoot];
+    const updated = this.updateBinding(bindingKey, nextBinding);
+    const volume = this.getThreadVolumeState(bindingKey, normalizedWorkspaceRoot, normalizedRuntimeId);
+    if (normalizedThreadId && (normalizedThreadId !== oldThreadId || !volume.startedAt)) {
+      this.setThreadVolumeState(bindingKey, normalizedWorkspaceRoot, {
+        startedAt: new Date().toISOString(),
+        reminderSentAt: "",
+      }, normalizedRuntimeId);
+    }
+    return updated;
   }
 
   getRuntimeParamsForWorkspace(bindingKey, workspaceRoot) {

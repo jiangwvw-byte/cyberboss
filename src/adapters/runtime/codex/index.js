@@ -185,6 +185,30 @@ function createCodexRuntimeAdapter(config) {
       await this.initialize();
 
       let threadId = sessionStore.getThreadIdForWorkspace(bindingKey, workspaceRoot);
+      let volumeNotice = "";
+      if (threadId) {
+        let volume = sessionStore.getThreadVolumeState(bindingKey, workspaceRoot);
+        if (!volume.startedAt) {
+          sessionStore.setThreadVolumeState(bindingKey, workspaceRoot, {
+            startedAt: new Date().toISOString(),
+            reminderSentAt: "",
+          });
+          volume = sessionStore.getThreadVolumeState(bindingKey, workspaceRoot);
+        }
+        const ageDays = threadAgeDays(volume.startedAt);
+        const volumeDays = normalizeVolumeDays(config.threadVolumeDays);
+        if (ageDays >= volumeDays) {
+          sessionStore.clearThreadIdForWorkspace(bindingKey, workspaceRoot);
+          threadId = "";
+          volumeNotice = "A fresh conversation volume has started because the previous one reached seven days. Recent memory has been reloaded. Briefly tell the user naturally.";
+        } else if (ageDays >= volumeDays - 1 && !volume.reminderSentAt) {
+          volumeNotice = "This conversation volume is nearly seven days old. Briefly remind the user that you will start a fresh volume at the next natural boundary.";
+          sessionStore.setThreadVolumeState(bindingKey, workspaceRoot, {
+            ...volume,
+            reminderSentAt: new Date().toISOString(),
+          });
+        }
+      }
       const storedParams = sessionStore.getRuntimeParamsForWorkspace(bindingKey, workspaceRoot);
       const desiredModel = resolveModel(model, storedParams);
       const desiredModelProvider = configuredModelProvider;
@@ -211,7 +235,7 @@ function createCodexRuntimeAdapter(config) {
           throw new Error("thread/start did not return a thread id");
         }
         sessionStore.setThreadIdForWorkspace(bindingKey, workspaceRoot, threadId, metadata);
-        outboundText = buildOpeningTurnText(config, text);
+        outboundText = buildOpeningTurnText(config, appendVolumeNotice(text, volumeNotice));
       } else {
         await runtimeClient.resumeThread({
           threadId,
@@ -233,8 +257,11 @@ function createCodexRuntimeAdapter(config) {
             model: desiredModel,
             modelProvider: desiredModelProvider,
           });
-          outboundText = buildOpeningTurnText(config, text);
+          outboundText = buildOpeningTurnText(config, appendVolumeNotice(text, volumeNotice));
         });
+      }
+      if (threadId && volumeNotice && outboundText === text) {
+        outboundText = appendVolumeNotice(text, volumeNotice);
       }
 
       const response = await runtimeClient.sendUserMessage({
@@ -262,6 +289,21 @@ function normalizeText(value) {
 function runtimeParamsMatch(storedParams, desiredParams) {
   return normalizeText(storedParams?.model) === normalizeText(desiredParams?.model)
     && normalizeText(storedParams?.modelProvider) === normalizeText(desiredParams?.modelProvider);
+}
+
+function normalizeVolumeDays(value) {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed >= 2 ? Math.min(parsed, 30) : 7;
+}
+
+function threadAgeDays(startedAt, now = Date.now()) {
+  const started = Date.parse(startedAt);
+  return Number.isFinite(started) ? (now - started) / 86400000 : 0;
+}
+
+function appendVolumeNotice(text, notice) {
+  if (!notice) return text;
+  return `${String(text || "").trim()}\n\nSYSTEM CONTINUITY NOTE: ${notice}`.trim();
 }
 
 function hasImageInputModality(model) {
